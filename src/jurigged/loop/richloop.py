@@ -3,6 +3,7 @@ import sys
 from collections import deque
 from contextlib import contextmanager
 from dataclasses import dataclass
+from pynput import keyboard
 
 import reactivex as rx
 from giving import ObservableProxy
@@ -23,8 +24,10 @@ from rich.text import Text
 from rich.theme import Theme
 from rich.traceback import Traceback
 
-from .basic import ANSI_ESCAPE, cbreak, read_chars, readable_duration
+from .basic import readable_duration
 from .develoop import RedirectDeveloopRunner, itemappender, kill_thread
+
+ANSI_ESCAPE = re.compile(r"\x1b\[[;\d]*[A-Za-z]")
 
 REAL_STDOUT = sys.stdout
 TEMP_CONSOLE = Console(color_system="standard")
@@ -358,45 +361,58 @@ class RichDeveloopRunner(RedirectDeveloopRunner):
 
         self.dash.update()
 
+    def on_press(self, key):
+        print("special key {0} pressed".format(key))
+        try:
+            if key == keyboard.KeyCode.from_char("c"):
+                self.command("cont")
+                return
+            elif key == keyboard.KeyCode.from_char("r"):
+                self.command("go", aborts=True)
+                return
+            elif key == keyboard.KeyCode.from_char("a"):
+                self.command("abort", aborts=True)
+                return
+            elif key == keyboard.KeyCode.from_char("q"):
+                self.command("quit", aborts=True)
+                return
+            elif key == keyboard.Key.up:
+                self.dash.shifter(-1, mode="line")
+                return
+            elif key == keyboard.Key.down:
+                self.dash.shifter(1, mode="line")
+                return
+            elif key == keyboard.Key.page_up:
+                self.dash.shifter(-1, mode="screen")
+                return
+            elif key == keyboard.Key.page_down:
+                self.dash.shifter(1, mode="screen")
+                return
+            elif key == keyboard.Key.home:
+                self.dash.shifter(-1, mode="whole")
+                return
+            elif key == keyboard.Key.end:
+                self.dash.shifter(1, mode="whole")
+                return
+            elif key == keyboard.Key.left:
+                self.dash.shifter(-1, mode="focus")
+                return
+            elif key == keyboard.Key.right:
+                self.dash.shifter(1, mode="focus")
+                return
+        except AttributeError:
+            print("special key {0} pressed".format(key))
+
     @contextmanager
     def wrap_loop(self):
-        with self.dash.run(), cbreak():
+        with self.dash.run():
             try:
-                scheduler = rx.scheduler.EventLoopScheduler()
-                kp = ObservableProxy(
-                    rx.from_iterable(read_chars(), scheduler=scheduler)
-                ).share()
+                listener = keyboard.Listener(on_press=self.on_press)
 
-                kp.where(char="c") >> self.command("cont")
-                kp.where(char="r") >> self.command("go", aborts=True)
-                kp.where(char="a") >> self.command("abort", aborts=True)
-                kp.where(char="q") >> self.command("quit", aborts=True)
-
-                # Up
-                kp.where(char="[A") >> self.dash.shifter(-1, mode="line")
-                # Down
-                kp.where(char="[B") >> self.dash.shifter(1, mode="line")
-
-                # Page Up
-                kp.where(char="[5~") >> self.dash.shifter(-1, mode="screen")
-                # Page Down
-                kp.where(char="[6~") >> self.dash.shifter(1, mode="screen")
-
-                # Home
-                kp.where(char="[1~") >> self.dash.shifter(-1, mode="whole")
-                # End
-                kp.where(char="[4~") >> self.dash.shifter(1, mode="whole")
-
-                # Left
-                kp.where(char="[D") >> self.dash.shifter(-1, mode="focus")
-                # Right
-                kp.where(char="[C") >> self.dash.shifter(1, mode="focus")
-
+                listener.start()
                 yield
-
             finally:
-                kill_thread(scheduler._thread)
-                scheduler.dispose()
+                pass
 
     def register_updates(self, gv):
         self.dash.clear()

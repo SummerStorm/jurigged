@@ -1,60 +1,11 @@
-import re
 import select
 import sys
-import termios
 import traceback
-import tty
 from contextlib import contextmanager
 from functools import partial
 
 from .develoop import Abort, DeveloopRunner
-
-ANSI_ESCAPE = re.compile(r"\x1b\[[;\d]*[A-Za-z]")
-ANSI_ESCAPE_INNER = re.compile(r"[\x1b\[;\d]")
-ANSI_ESCAPE_END = re.compile(r"[A-Za-z~]")
-
-
-@contextmanager
-def cbreak():
-    old_attrs = termios.tcgetattr(sys.stdin)
-    tty.setcbreak(sys.stdin)
-    try:
-        yield
-    finally:
-        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_attrs)
-
-
-def read_chars():
-    esc = None
-    try:
-        while True:
-            ready, _, _ = select.select([sys.stdin], [], [], 0.02)
-            if ready:
-                # Sometimes, e.g. when pressing an up arrow, multiple
-                # characters are buffered, and read1() is the only way
-                # I found to read precisely what was buffered. select
-                # seems unreliable in these cases, probably because the
-                # buffer fools it into thinking there is nothing else
-                # to read. So read(1) would leave some characters dangling
-                # in the buffer until the next keypress.
-                for ch in sys.stdin.buffer.read1():
-                    ch = chr(ch)
-                    if esc is not None:
-                        if ANSI_ESCAPE_INNER.match(ch):
-                            esc += ch
-                        elif ANSI_ESCAPE_END.match(ch):
-                            yield {"char": esc + ch, "escape": True}
-                            esc = None
-                        else:
-                            yield {"char": esc, "escape": True}
-                            esc = None
-                            yield {"char": ch}
-                    elif ch == "\x1b":
-                        esc = ""
-                    else:
-                        yield {"char": ch}
-    except Abort:
-        pass
+from pynput import keyboard
 
 
 class BasicDeveloopRunner(DeveloopRunner):
@@ -84,15 +35,15 @@ class BasicDeveloopRunner(DeveloopRunner):
         ]
         print(self._pad(" | ".join(footer), 50))
 
-        with cbreak():
-            for c in read_chars():
-                if c["char"] == "c":
+        with keyboard.Events() as events:
+            for event in events:
+                if event.key == keyboard.KeyCode.from_char("c"):
                     self.command("cont")()
                     break
-                elif c["char"] == "r":
+                elif event.key == keyboard.KeyCode.from_char("r"):
                     self.command("go")()
                     break
-                elif c["char"] == "q":
+                elif event.key == keyboard.KeyCode.from_char("q"):
                     self.command("quit")()
                     break
 
